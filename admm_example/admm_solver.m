@@ -1,0 +1,114 @@
+function [x,output] = admm_solver(x_initial,g,dg,D,dD,p,r_max,maxIt,admm_primal_update_fcn,admm_dual_update_fcn,flagDebug,methodPenaltyUpdate)
+
+x = x_initial;
+z = D(x); 
+u = zeros(size(z));
+flagRunning=true; % algorithm termination flag
+
+if flagDebug
+    % initialize variable for all parameters
+    output.primal=zeros(1,maxIt+1);
+    output.xAll=zeros([size(x) maxIt+1]);
+    output.zAll=zeros([size(z) maxIt+1]);
+    output.gap =zeros(1,maxIt+1); % duality gap
+    output.uAll=output.zAll;
+    output.Lag=zeros(1,maxIt+1);
+    output.primal_residual=zeros(1,maxIt+1);
+    output.dual_residual=zeros(1,maxIt+1);
+    output.penalty=zeros([length(p),maxIt+1]); 
+    % cost for initial trajectory
+    output.Lag(1)=g(x_initial);
+    output.primal(1)=g(x_initial);
+    output.xAll(:,:,1)=x_initial;
+    output.primal_residual(1)=0;
+    output.dual_residual(1)=0;
+    output.penalty(:,1)=p;
+end
+
+%% main algorithm iteration
+for it=1:maxIt
+           
+    % stop the loop if result meet the requirement
+    if ~flagRunning
+        break 
+    end
+    %% variable setup
+    %store current values at the beginning of the iteration
+    xPrev=x;
+    uPrev=u;
+    zPrev=z;   
+    % set up primal update function with gredient included
+    options = optimoptions('fminunc','Algorithm','trust-region','SpecifyObjectiveGradient',true); % could try "trust-region" algorithm
+    x_update_fcn = admm_primal_update_fcn(g,dg,z,u,p,D,dD);
+    
+    %% update dual variables
+    % 
+    %   xNew : argmin(f(x)+(p/2)*norm(D(x)-zPrev+uPrev)^2)
+    %   zNew : project (D(xNew)+uPrev) on to r_max
+    %   uNew : uPrev + D(xNew) - zNew
+    x=fminunc(x_update_fcn,x,options);
+    if flagDebug
+        % check the result of the matlab optmization solver
+        L = x_update_fcn(x);
+    end
+    z=admm_dual_update_fcn(D(x)+uPrev,r_max);
+    u=D(x)+uPrev-z;
+
+%     plotPoints(x_initial,'bo');hold on;plotPoints(x,'rx');plotPoints(xPrev,'kx');hold off
+   
+    %% Penalty Parameter update
+    % primal residual
+    r_k = D(x) - z;
+    % dual residual
+    s_k = - p*(sum((z-zPrev).^2)');
+    
+    r_k_norm = trace(r_k'*r_k);
+    s_k_norm = trace(s_k'*s_k);
+    % penalty update
+    switch methodPenaltyUpdate
+        case 'constant'
+            %nothing to do
+        case 'singleAdaptive'    
+            Mu = 2;
+            Tau_inc = 1.5;
+            Tau_decr = 1.5;
+            if r_k_norm > Mu*s_k_norm
+                u = u.*p;
+                p = Tau_inc * p;
+                u = u./p;
+            elseif s_k_norm > Mu*r_k_norm
+                u = u.*p;
+                p = p / Tau_decr;
+                u = u./p;
+            end
+    end
+%     p = p+ 0.1;
+%     disp('Penalty parameter')
+%     disp(p);
+    %%
+    %save internal value for debugging
+    if flagDebug
+        output.primal(it+1)=g(x);
+        output.Lag(it+1)=L;
+        output.xAll(:,:,it+1)=x;
+        output.zAll(:,:,it+1)=z;
+        output.uAll(:,:,it+1)=u;
+        output.gap(it+1)=norm(D(x)-z)^2;
+        output.primal_residual(it+1)=r_k_norm;
+        output.dual_residual(it+1)=s_k_norm;
+        output.penalty(:,it+1)=p;
+    end
+    
+    %% optimality condition
+    if s_k_norm<1e-3 && r_k_norm<0.01
+        flagRunning=false;
+    end
+
+
+
+end
+if flagDebug
+    output.it = it;
+end
+end
+

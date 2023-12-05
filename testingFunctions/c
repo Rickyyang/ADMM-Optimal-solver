@@ -1,0 +1,17 @@
+resetRands()
+traj_length = 20;
+n_agent = 2;
+velocityCap = 1;
+timePeriod = [3,4];
+agentID = 1;
+constraint = constraintLocalVelocity(n_agent,traj_length,velocityCap,timePeriod,agentID);
+g = constraint.equalityConstrainDx;
+dg = constraint.equalityConstrainDer;
+
+% g = @(x) f(x);
+% dg = @(x) df(x);
+
+[xt,dxt]=real_randGeodFun(randn(2,40));
+gt = @(t) vec(g(xt(t)));
+dgt=@(t) dg(xt(t))*vec(dxt(t));
+funCheckDer(gt,dgt);
